@@ -1,0 +1,25 @@
+# Python virtual environment
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Models and large binary files
+*.caffemodel
+*.prototxt
+
+# Logs
+*.log
+
+# Node.js dependencies
+server_peripherals/iot-dashboard/node_modules/
+
+# React build artifacts
+server_peripherals/iot-dashboard/build/
+server_peripherals/iot-dashboard/.env
+
+# OS generated
+.DS_Store
+Thumbs.db

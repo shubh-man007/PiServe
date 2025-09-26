@@ -1,0 +1,100 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse, JSONResponse
+import cv2
+import numpy as np
+import threading
+import time
+
+app = FastAPI(title="PiServe")
+
+sensor_data = {"temperature": None, "humidity": None}
+
+camera_lock = threading.Lock()
+cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+if not cap.isOpened():
+    print("Cannot open camera")
+    cap.release()
+    cap = None
+
+net = cv2.dnn.readNetFromCaffe("MobileNetSSD_deploy.prototxt",
+                               "MobileNetSSD_deploy.caffemodel")
+CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
+           "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+           "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+           "sofa", "train", "tvmonitor"]
+conf_threshold = 0.5
+
+def generate_video_feed():
+    global cap
+    while True:
+        if cap is None:
+            break
+
+        with camera_lock:
+            ret, frame = cap.read()
+            if not ret:
+                print("Cannot read camera frame")
+                time.sleep(0.1)
+                continue
+
+            (h, w) = frame.shape[:2]
+            blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)),
+                                         0.007843, (300, 300), 127.5)
+            net.setInput(blob)
+            detections = net.forward()
+
+            for i in range(detections.shape[2]):
+                confidence = detections[0, 0, i, 2]
+                if confidence > conf_threshold:
+                    idx = int(detections[0, 0, i, 1])
+                    box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                    (startX, startY, endX, endY) = box.astype("int")
+
+                    label = f"{CLASSES[idx]}: {confidence*100:.2f}%"
+                    cv2.rectangle(frame, (startX, startY), (endX, endY),
+                                  (255, 0, 0), 2)
+                    cv2.putText(frame, label, (startX, startY - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+            # Encode frame as JPEG
+            ret, jpeg = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+            frame_bytes = jpeg.tobytes()
+
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+@app.get("/video-feed/")
+def video_feed():
+    if cap is None:
+        return JSONResponse({"error": "Camera not available"}, status_code=500)
+    return StreamingResponse(generate_video_feed(),
+                             media_type="multipart/x-mixed-replace; boundary=frame")
+
+@app.post("/sensor-data/")
+async def receive_sensor_data(request: Request):
+    global sensor_data
+    try:
+        data = await request.json()
+        temperature = data.get("temperature")
+        humidity = data.get("humidity")
+        if temperature is not None and humidity is not None:
+            sensor_data["temperature"] = temperature
+            sensor_data["humidity"] = humidity
+            return {"status": "success"}
+        else:
+            return JSONResponse({"status": "error", "message": "Missing temperature or humidity"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
+
+@app.get("/sensor-data/")
+def get_sensor_data():
+    return sensor_data
+
+@app.on_event("shutdown")
+def shutdown_event():
+    global cap
+    if cap:
+        cap.release()
+        print("Camera released")
