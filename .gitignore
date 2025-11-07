@@ -26,3 +26,6 @@ Thumbs.db
 
 # DB Keys
 *.key
+
+# Environment Variables
+.env
