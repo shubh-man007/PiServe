@@ -5,7 +5,7 @@ function App() {
 
   useEffect(() => {
     // Connect to WebSocket
-    const ws = new WebSocket("ws://10.175.107.165:8000/ws/sensor/");
+    const ws = new WebSocket("ws://10.159.26.165:8000/ws/sensor/");
 
     ws.onopen = () => {
       console.log("Connected to sensor WebSocket");

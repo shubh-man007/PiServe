@@ -1,9 +1,23 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
 import cv2
 import numpy as np
 import threading
 import time
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+BUCKET = os.getenv("INFLUXDB_BUCKET")
+ORG = os.getenv("INFLUXDB_ORG")
+TOKEN = os.getenv("INFLUXDB_TOKEN")
+URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
+
+client = InfluxDBClient(url=URL, token=TOKEN, org=ORG)
+write_api = client.write_api(write_options=SYNCHRONOUS)
 
 app = FastAPI(title="PiServe")
 
@@ -16,8 +30,8 @@ if not cap.isOpened():
     cap.release()
     cap = None
 
-net = cv2.dnn.readNetFromCaffe("MobileNetSSD_deploy.prototxt",
-                               "MobileNetSSD_deploy.caffemodel")
+# Load detection model
+net = cv2.dnn.readNetFromCaffe("MobileNetSSD_deploy.prototxt", "MobileNetSSD_deploy.caffemodel")
 CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
            "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
            "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
@@ -33,7 +47,6 @@ def generate_video_feed():
         with camera_lock:
             ret, frame = cap.read()
             if not ret:
-                print("Cannot read camera frame")
                 time.sleep(0.1)
                 continue
 
@@ -56,7 +69,6 @@ def generate_video_feed():
                     cv2.putText(frame, label, (startX, startY - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-            # Encode frame as JPEG
             ret, jpeg = cv2.imencode('.jpg', frame)
             if not ret:
                 continue
@@ -65,6 +77,7 @@ def generate_video_feed():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
+
 @app.get("/video-feed/")
 def video_feed():
     if cap is None:
@@ -72,25 +85,38 @@ def video_feed():
     return StreamingResponse(generate_video_feed(),
                              media_type="multipart/x-mixed-replace; boundary=frame")
 
+
 @app.post("/sensor-data/")
 async def receive_sensor_data(request: Request):
-    global sensor_data
     try:
         data = await request.json()
         temperature = data.get("temperature")
         humidity = data.get("humidity")
-        if temperature is not None and humidity is not None:
-            sensor_data["temperature"] = temperature
-            sensor_data["humidity"] = humidity
-            return {"status": "success"}
-        else:
+
+        if temperature is None or humidity is None:
             return JSONResponse({"status": "error", "message": "Missing temperature or humidity"}, status_code=400)
+
+        sensor_data["temperature"] = temperature
+        sensor_data["humidity"] = humidity
+
+        point = (
+            Point("temperature_humidity")
+            .field("temperature", float(temperature))
+            .field("humidity", float(humidity))
+            .time(time.time_ns(), WritePrecision.NS)
+        )
+        write_api.write(bucket=BUCKET, org=ORG, record=point)
+
+        return {"status": "success", "temperature": temperature, "humidity": humidity}
+
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
+
 
 @app.get("/sensor-data/")
 def get_sensor_data():
     return sensor_data
+
 
 @app.on_event("shutdown")
 def shutdown_event():
