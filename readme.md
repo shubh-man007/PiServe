@@ -32,11 +32,11 @@ PiServe/
 --- 
 
 ## System Architecture
-
+![Architecture](https://github.com/shubh-man007/PiServe/blob/main/assets/Arch.png)
 
 ---
 
-## Installation
+## Installation and Usage
 
 ### 1. Clone Repository
 
@@ -53,32 +53,20 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Start Backend Server
+### 3. Run Server
 
 ```bash
 cd server_peripherals
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
-http://<raspberry-pi-ip>:8086 # Influx DB
-http://<raspberry-pi-ip>:3000 #Grafana
 ```
 
----
+### 4. Access
 
-## Usage
-
-### Accessing Camera Feed
-
-Open in a web browser:
-
+```bash
+http://<raspberry-pi-ip>:8086             # Influx DB
+http://<raspberry-pi-ip>:3000             # Grafana
+http://<raspberry-pi-ip>:8000/video-feed/ # Detection Stream
 ```
-http://<raspberry-pi-ip>:8000/video-feed/
-```
-
-### ESP32 Sensor Integration
-
-1. Configure your ESP32 with the Raspberry Pi’s IP in its Wi-Fi client code.
-2. Ensure both ESP32 and Raspberry Pi are on the same network.
-3. The ESP32 automatically sends temperature and humidity readings via `POST /sensor-data/`.
 
 ---
 
